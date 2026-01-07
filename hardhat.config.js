@@ -28,6 +28,12 @@ module.exports = {
         version: "0.8.19",
       },
     ],
+    settings: {
+      remappings: [
+        "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+        "@uniswap/v3-periphery/=node_modules/@uniswap/v3-periphery/",
+      ],
+    },
   },
   networks: {
     hardhat: {
