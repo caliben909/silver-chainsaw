@@ -24,7 +24,7 @@ module.exports = {
       // Default for testing
     },
     arbitrum: {
-      url: "https://arb1.arbitrum.io/rpc",
+      url: "https://open-platform.nodereal.io/a3294d450b0f47c196e88a7172d902df/arbitrum-nitro/",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     }
   },

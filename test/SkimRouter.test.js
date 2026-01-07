@@ -8,7 +8,7 @@ describe("SkimRouter", function () {
     [owner, treasury] = await ethers.getSigners();
     SkimRouter = await ethers.getContractFactory("SkimRouter");
     skimRouter = await SkimRouter.deploy(treasury.address);
-    await skimRouter.deployed();
+    await skimRouter.waitForDeployment();
   });
 
   it("Should deploy with correct treasury", async function () {

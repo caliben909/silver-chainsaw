@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "C:\\Users\\MURUGI NDERITU\\Downloads\\sofaa\\my-deFi-empire\\contracts\\GodModeEmpire.sol": {
-      "lastModificationDate": 1767470547655,
-      "contentHash": "4bc1143daec1b91d5fe974180f2443e3",
+      "lastModificationDate": 1767641068895,
+      "contentHash": "9187aad2854d99798584d6dcdce1725d",
       "sourceName": "contracts/GodModeEmpire.sol",
       "solcConfig": {
         "version": "0.8.20",
@@ -44,9 +44,14 @@
       "artifacts": [
         "GodModeEmpire",
         "IAaveFlashLoan",
+        "IAavePool",
         "IBalancerVault",
         "INonfungiblePositionManager",
-        "ISwapRouter"
+        "IQuoter",
+        "ISwapRouter",
+        "IUniswapV3FlashCallback",
+        "IUniswapV3Pool",
+        "IUniswapV3SwapCallback"
       ]
     },
     "C:\\Users\\MURUGI NDERITU\\Downloads\\sofaa\\my-deFi-empire\\node_modules\\@openzeppelin\\contracts\\access\\Ownable.sol": {
@@ -506,6 +511,47 @@
       "artifacts": [
         "ISwapRouter",
         "SkimRouter"
+      ]
+    },
+    "C:\\Users\\MURUGI NDERITU\\Downloads\\sofaa\\my-deFi-empire\\contracts\\MCPDistributor.sol": {
+      "lastModificationDate": 1767623469025,
+      "contentHash": "0406c9c1e23296b084a1b2026b7c0ea2",
+      "sourceName": "contracts/MCPDistributor.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "viaIR": true,
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "@openzeppelin/contracts/access/Ownable.sol",
+        "@openzeppelin/contracts/utils/ReentrancyGuard.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "IERC20",
+        "MCPDistributor"
       ]
     }
   }

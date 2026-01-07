@@ -4,7 +4,7 @@ This is an advanced DeFi arbitrage bot designed for the Arbitrum network. It per
 
 ## Features
 
-- Flash loan arbitrage using Aave
+- Flash loan arbitrage using Uniswap V3
 - Triangular and quad arbitrage cycles
 - Support for multiple tokens on Arbitrum
 - Dynamic token fetching
@@ -25,9 +25,10 @@ This is an advanced DeFi arbitrage bot designed for the Arbitrum network. It per
    ```
 
 3. **Set up environment variables:**
-   - Copy `.env` and update it with your actual values:
-     - `PRIVATE_KEY`: Your Ethereum private key (keep secure)
-     - `GODMODE_EMPIRE_ADDRESS`: Address of the deployed GodModeEmpire contract (after deployment)
+    - Copy `.env` and update it with your actual values:
+      - `PRIVATE_KEY`: Your Ethereum private key (keep secure)
+      - `INFURA_API_KEY`: Your Infura API key for RPC access
+      - `GODMODE_EMPIRE_ADDRESS`: Address of the deployed GodModeEmpire contract (after deployment)
 
 4. **Compile the contracts:**
    ```
@@ -58,16 +59,18 @@ This is an advanced DeFi arbitrage bot designed for the Arbitrum network. It per
 - npm
 - An Ethereum wallet with ETH on Arbitrum for gas fees
 - Access to Arbitrum network (via RPC or WebSocket)
+- Moralis API key for price checking
+- Nodereal API key for enhanced RPC access
 
 ## Contracts
 
 - `GodModeEmpire.sol`: Main arbitrage contract with flash loan strategies
 - `SkimRouter.sol`: Swap router with fee mechanism
-- `YourDEXArbitrage.sol`: Additional arbitrage contract using Aave flash loans
 
 ## Scripts
 
 - `empire-ai.js`: AI script that monitors and executes arbitrage opportunities
+- `atomic-multicall.js`: Executes atomic batch transactions using Multicall3 for guaranteed all-or-nothing operations
 - `fetchArbitrumTokens()`: Fetches token list from CoinGecko
 
 ## Testing
@@ -79,6 +82,31 @@ npx hardhat test
 
 This will list all token addresses and verify contract functionality.
 
+## Testing
+
+Run the test suite:
+```bash
+npm test
+```
+
+The bot includes comprehensive startup tests to verify:
+- Environment variables configuration
+- RPC provider connections
+- Wallet and contract deployments
+- Price quoting functionality
+- Flash loan provider initialization
+- Cross-chain bridge setup
+- MCP Distributor wallet configuration
+
+For backtesting, set `DRY_RUN=true` in your `.env` file to simulate trades without execution.
+
+## Security Notes
+
+- Use hardware wallets or secure enclaves for private keys
+- Never store private keys in `.env` files in production
+- Monitor gas costs and slippage to avoid losses
+- Test thoroughly on testnets before mainnet deployment
+
 ## Disclaimer
 
-This is experimental software. Use at your own risk. Ensure you understand the code and risks involved in DeFi trading.
+This software is provided as-is. DeFi trading involves significant risks including impermanent loss, smart contract vulnerabilities, and market volatility. Always conduct your own research and use at your own risk.

@@ -1,23 +1,34 @@
 {
-  "name": "my-defi-empire",
+  "name": "empire-arb-bot",
   "version": "1.0.0",
-  "description": "DeFi Empire with flashloans and arbitrage",
-  "main": "empire-ai.js",
+  "description": "Arbitrum 20-token skew-arb profit machine",
+  "main": "scripts/keeper/index.js",
   "scripts": {
-    "compile": "npx hardhat compile",
-    "test": "npx hardhat test",
-    "deploy-skim": "npx hardhat run scripts/deploy-skim-router.js --network arbitrum",
-    "deploy-empire": "npx hardhat run scripts/deploy-godmode-empire.js --network arbitrum",
-    "run-ai": "node empire-ai.js"
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:arb": "hardhat run scripts/deploy.js --network arbitrum",
+    "upgrade": "hardhat run scripts/upgrade.js --network arbitrum",
+    "add:pools": "hardhat run scripts/addPools.js --network arbitrum",
+    "start": "pm2 start ecosystem.config.js",
+    "stop": "pm2 stop empire",
+    "logs": "pm2 logs empire"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "hardhat": "^2.19.4",
-    "dotenv": "^16.3.1",
-    "@chainlink/contracts": "^0.6.1",
-    "@openzeppelin/contracts": "^5.0.0"
+    "hardhat": "^2.19.4"
   },
   "dependencies": {
-    "ethers": "^6.14.0"
+    "@chainlink/contracts": "^0.8.0",
+    "@openzeppelin/contracts": "^5.0.1",
+    "@openzeppelin/contracts-upgradeable": "^5.0.1",
+    "@uniswap/v3-core": "^1.0.1",
+    "@uniswap/v3-periphery": "^1.4.3",
+    "@uniswap/v3-sdk": "^3.10.0",
+    "@flashbots/ethers-provider-bundle": "^1.0.0",
+    "axios": "^1.6.5",
+    "bn.js": "^5.2.1",
+    "dotenv": "^16.3.1",
+    "ethers": "^5.7.2",
+    "pm2": "^5.3.0"
   }
 }

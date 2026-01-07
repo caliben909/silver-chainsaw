@@ -5,7 +5,7 @@ async function main() {
 
   console.log("Deploying GodModeEmpire with account:", deployer.address);
 
-  const SKIM_ROUTER_ADDRESS = "0xYourSkimRouterAddress"; // Paste from Step 5
+  const SKIM_ROUTER_ADDRESS = "0x3395B3D85f4629271b85514A7841040F4B669aBf"; // Paste from Step 5
   const TREASURY_ADDRESS = deployer.address;
 
   const GodModeEmpire = await hre.ethers.getContractFactory("GodModeEmpire");
