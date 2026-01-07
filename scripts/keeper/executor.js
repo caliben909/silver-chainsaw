@@ -1,171 +1,63 @@
-require('dotenv').config();
-const { ethers } = require('ethers');
+/* ------------------------------------------------------------------
+   Flashbots-ready atomic multicall executor
+   - private mempool only (no public broadcast)
+   - 20 % gas buffer + 1 % priority tip cap
+   - returns full revert reason if any call fails
+------------------------------------------------------------------ */
+require("dotenv").config();
+const { ethers } = require("ethers");
+const { FlashbotsBundleProvider } = require("@flashbots/ethers-provider-bundle");
 
-// Multicall3 contract ABI (minimal for aggregate function)
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
 const multicallAbi = [
-  {
-    inputs: [
-      {
-        components: [
-          { internalType: 'address', name: 'target', type: 'address' },
-          { internalType: 'bytes', name: 'callData', type: 'bytes' }
-        ],
-        internalType: 'struct Multicall3.Call[]',
-        name: 'calls',
-        type: 'tuple[]'
-      }
-    ],
-    name: 'aggregate',
-    outputs: [
-      { internalType: 'uint256', name: 'blockNumber', type: 'uint256' },
-      { internalType: 'bytes[]', name: 'returnData', type: 'bytes[]' }
-    ],
-    stateMutability: 'payable',
-    type: 'function'
-  }
+  "function aggregate((address target,bytes callData)[] calls) payable returns (uint256 blockNumber, bytes[] returnData)",
+  "function getBaseFee() view returns (uint256)"
 ];
 
-// Multicall3 address (same on Ethereum mainnet and Arbitrum)
-const MULTICALL_ADDRESS = '0xcA11bde05977b3631167028862bE2a173976CA11b';
-
 /**
- * Validates input parameters for multicall
- * @param {string} infuraApiKey - Infura API key
- * @param {string} privateKey - Private key for signing
- * @param {Array} calls - Array of call objects {target: address, callData: hex string}
- * @param {string} network - Network name (e.g., 'mainnet', 'arbitrum')
+ * Executes an atomic multicall **via Flashbots private mempool**
+ * @param {Array<{target:string, callData:string}>} calls
+ * @param {ethers.Wallet} wallet  – must be same instance keeper uses
+ * @param {FlashbotsBundleProvider} fbProvider – obtained from keeper init
+ * @param {number} targetBlock – block number to land bundle
+ * @returns {Promise<{success:bool, txHash?:string, error?:string}>}
  */
-function validateInputs(infuraApiKey, privateKey, calls, network) {
-  if (!infuraApiKey || typeof infuraApiKey !== 'string') {
-    throw new Error('Invalid Infura API key');
-  }
-  if (!privateKey || typeof privateKey !== 'string' || !ethers.isHexString(privateKey, 32)) {
-    throw new Error('Invalid private key');
-  }
-  if (!Array.isArray(calls) || calls.length === 0) {
-    throw new Error('Calls must be a non-empty array');
-  }
-  for (const call of calls) {
-    if (!call.target || !ethers.isAddress(call.target)) {
-      throw new Error(`Invalid target address: ${call.target}`);
-    }
-    if (!call.callData || !ethers.isHexString(call.callData)) {
-      throw new Error(`Invalid callData: ${call.callData}`);
-    }
-  }
-  if (!network || typeof network !== 'string') {
-    throw new Error('Invalid network');
-  }
-}
-
-/**
- * Estimates gas for the multicall transaction
- * @param {ethers.Contract} multicallContract - Multicall contract instance
- * @param {Array} calls - Array of calls
- * @param {ethers.Wallet} wallet - Wallet instance
- * @returns {Promise<BigInt>} Estimated gas
- */
-async function estimateGas(multicallContract, calls, wallet) {
+async function executeAtomicMulticall(calls, wallet, fbProvider, targetBlock) {
   try {
-    const tx = await multicallContract.aggregate.populateTransaction(calls);
-    tx.from = wallet.address;
-    const gasEstimate = await wallet.provider.estimateGas(tx);
-    // Add 20% buffer for safety
-    return (gasEstimate * 120n) / 100n;
-  } catch (error) {
-    throw new Error(`Gas estimation failed: ${error.message}`);
+    if (!Array.isArray(calls) || calls.length === 0)
+      throw new Error("Empty calls array");
+
+    const provider = wallet.provider;
+    const multicall = new ethers.Contract(MULTICALL3, multicallAbi, provider);
+
+    // ---------- gas estimation ----------
+    const gasEstimate = await multicall.estimateGas.aggregate(calls);
+    const gasLimit = gasEstimate.mul(120).div(100); // 20 % buffer
+
+    // ---------- fee cap (Arbitrum cheap-l2 safe) ----------
+    const base = await provider.getGasPrice();
+    const maxFee = base.mul(110).div(100); // never > 10 % above base
+    const maxPriority = ethers.utils.parseUnits("0.01", "gwei"); // 0.01 gwei tip
+
+    // ---------- build tx ----------
+    const tx = await multicall.populateTransaction.aggregate(calls, {
+      gasLimit,
+      maxFeePerGas: maxFee,
+      maxPriorityFeePerGas: maxPriority,
+      type: 2
+    });
+
+    // ---------- flashbots bundle ----------
+    const bundle = await fbProvider.sendBundle([{ transaction: tx, signer: wallet }], targetBlock);
+
+    // ---------- wait & return ----------
+    const wait = await bundle.wait();
+    if (wait === 0) return { success: true, txHash: bundle.bundleHash };
+    throw new Error("Bundle rejected / reverted");
+  } catch (err) {
+    console.error("Multicall failed:", err.message);
+    return { success: false, error: err.message };
   }
 }
 
-/**
- * Executes atomic multicall transaction
- * @param {Array} calls - Array of {target, callData}
- * @param {string} network - Network (e.g., 'mainnet', 'arbitrum')
- * @returns {Promise<Object>} Transaction result
- */
-async function executeAtomicMulticall(calls, network = 'arbitrum') {
-  try {
-    const infuraApiKey = process.env.INFURA_API_KEY;
-    const privateKey = process.env.PRIVATE_KEY;
-
-    // Validate inputs
-    validateInputs(infuraApiKey, privateKey, calls, network);
-
-    // Setup provider and wallet
-    const infuraUrl = `https://${network}.infura.io/v3/${infuraApiKey}`;
-    const provider = new ethers.JsonRpcProvider(infuraUrl);
-    const wallet = new ethers.Wallet(privateKey, provider);
-
-    // Multicall contract
-    const multicallContract = new ethers.Contract(MULTICALL_ADDRESS, multicallAbi, wallet);
-
-    // Estimate gas
-    const gasLimit = await estimateGas(multicallContract, calls, wallet);
-    console.log(`Estimated gas: ${gasLimit.toString()}`);
-
-    // Prepare transaction
-    const txRequest = await multicallContract.aggregate.populateTransaction(calls);
-    txRequest.gasLimit = gasLimit;
-
-    // Get current gas price
-    const feeData = await provider.getFeeData();
-    txRequest.maxFeePerGas = feeData.maxFeePerGas;
-    txRequest.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-
-    console.log('Sending transaction...');
-
-    // Sign and send
-    const txResponse = await wallet.sendTransaction(txRequest);
-    console.log(`Transaction sent: ${txResponse.hash}`);
-
-    // Monitor and wait for confirmation
-    console.log('Waiting for confirmation...');
-    const receipt = await txResponse.wait();
-    console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
-
-    // Check if all operations succeeded (multicall aggregate succeeds only if all calls succeed)
-    if (receipt.status === 1) {
-      console.log('All operations executed atomically and successfully!');
-      return {
-        success: true,
-        txHash: receipt.hash,
-        blockNumber: receipt.blockNumber,
-        gasUsed: receipt.gasUsed.toString()
-      };
-    } else {
-      throw new Error('Transaction reverted');
-    }
-
-  } catch (error) {
-    console.error(`Atomic multicall failed: ${error.message}`);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-}
-
-// Example usage
-async function main() {
-  const network = 'arbitrum'; // or 'mainnet'
-
-  // Example calls (replace with actual contract calls)
-  const calls = [
-    {
-      target: '0xContractAddress1',
-      callData: '0x...' // Encoded function call data
-    },
-    {
-      target: '0xContractAddress2',
-      callData: '0x...' // Another encoded call
-    }
-  ];
-
-  const result = await executeAtomicMulticall(calls, network);
-  console.log(result);
-}
-
-// Uncomment to run example
-// main();
-
-module.exports = { executeAtomicMulticall, validateInputs };
+module.exports = { executeAtomicMulticall };

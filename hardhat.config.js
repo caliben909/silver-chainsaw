@@ -31,6 +31,7 @@ module.exports = {
     settings: {
       remappings: [
         "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
+        "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
         "@uniswap/v3-periphery/=node_modules/@uniswap/v3-periphery/",
       ],
     },
