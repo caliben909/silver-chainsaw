@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -488,31 +489,51 @@ contract GodModeEmpire is Ownable(msg.sender), ReentrancyGuard {
         }
     }
 
+    /* ----------------------------------------------------------
+       Oracle-backed minimum-output (for legacy swaps if needed)
+       Uses Chainlink feeds stored in config.js mapping.
+       Falls back to 0 if either feed missing or stale.
+    ---------------------------------------------------------- */
+    mapping(address => address) public oracle; // token → chainlink feed
+
+    function setOracle(address token, address feed) external onlyOwner {
+        oracle[token] = feed;
+    }
+
+    /// @dev Returns minimum amount out based on Chainlink price + slippage.
+    function _calculateMinOutput(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) internal view returns (uint256 minOut) {
+        address feedIn  = oracle[tokenIn];
+        address feedOut = oracle[tokenOut];
+        if (feedIn == address(0) || feedOut == address(0)) return 0;
+
+        (, int256 priceIn , , , ) = AggregatorV3Interface(feedIn).latestRoundData();
+        (, int256 priceOut, , , ) = AggregatorV3Interface(feedOut).latestRoundData();
+        if (priceIn <= 0 || priceOut <= 0) return 0;
+
+        uint8 dIn  = IERC20Metadata(tokenIn).decimals();
+        uint8 dOut = IERC20Metadata(tokenOut).decimals();
+
+        uint256 expectedOut = amountIn * uint256(priceIn) * (10 ** dOut)
+                            / (uint256(priceOut) * (10 ** dIn));
+        minOut = expectedOut * (10_000 - SLIPPAGE_BPS) / 10_000;
+    }
+
+    /* ----------------------------------------------------------
+       Rescue
+    ---------------------------------------------------------- */
+    function rescueToken(address token) external onlyOwner {
+        uint256 bal = IERC20(token).balanceOf(address(this));
+        if (bal > 0) IERC20(token).safeTransfer(owner(), bal);
+    }
+
+    receive() external payable {}
+
     function _getPoolFeeForPair(address tokenIn, address tokenOut) internal view returns (uint24) {
         bytes32 key = keccak256(abi.encodePacked(tokenIn, tokenOut));
         return _getPoolFee(pairToPool[key]);
     }
-    
-    function _calculateMinOutput(address tokenIn, address tokenOut, uint256 amountIn) internal returns (uint256) {
-        uint8 dIn = tokenDecimals[tokenIn];
-        uint8 dOut = tokenDecimals[tokenOut];
-        if (dIn == 0 || dOut == 0) return 0;
-        AggregatorV3Interface oracleIn = _getOracle(tokenIn);
-        AggregatorV3Interface oracleOut = _getOracle(tokenOut);
-        if (address(oracleIn) == address(0) || address(oracleOut) == address(0)) {
-            return 0;
-        }
-        (, int256 priceIn,,,) = oracleIn.latestRoundData();
-        (, int256 priceOut,,,) = oracleOut.latestRoundData();
-        if (priceIn <= 0 || priceOut <= 0) return 0;
-        uint256 expectedOut = (amountIn * uint256(priceIn) * (10 ** dOut)) / (uint256(priceOut) * (10 ** dIn));
-        uint256 minOut = (expectedOut * (10000 - SLIPPAGE_BPS)) / 10000;
-        return minOut;
-    }
-
-    function rescueToken(address token) external onlyOwner {
-        IERC20(token).safeTransfer(owner(), IERC20(token).balanceOf(address(this)));
-    }
-
-    receive() external payable {}
 }
