@@ -36,7 +36,15 @@ abstract contract ArbBase is IUniswapV3FlashCallback {
         return _swap(c, a, amt2);
     }
 
+    function _quadArb(address a, address b, address c, address d, uint256 amt) internal returns (uint256) {
+        uint256 amt1 = _swap(a, b, amt);
+        uint256 amt2 = _swap(b, c, amt1);
+        uint256 amt3 = _swap(c, d, amt2);
+        return _swap(d, a, amt3);
+    }
+
     function _swap(address a, address b, uint256 amt) internal returns (uint256) {
+        require(_checkLiquidity(a, b, amt), "Insufficient liquidity");
         TransferHelper.safeApprove(a, Constants.ROUTER, 0);
         TransferHelper.safeApprove(a, Constants.ROUTER, amt);
         uint256 minOut = _minOut(a, b, amt);
@@ -46,7 +54,7 @@ abstract contract ArbBase is IUniswapV3FlashCallback {
                 tokenOut: b,
                 fee: Constants.FEE_005,
                 recipient: address(this),
-                deadline: block.number + 1,
+                deadline: block.timestamp + 60,
                 amountIn: amt,
                 amountOutMinimum: minOut,
                 sqrtPriceLimitX96: 0
@@ -75,6 +83,30 @@ abstract contract ArbBase is IUniswapV3FlashCallback {
     function _key(address a, address b) internal pure returns (bytes32) {
         (a, b) = a < b ? (a, b) : (b, a);
         return keccak256(abi.encodePacked(a, b));
+    }
+
+    function _checkLiquidity(address tokenA, address tokenB, uint256 /* amount */) internal view returns (bool) {
+        address pool = pairToPool[_key(tokenA, tokenB)];
+        if (pool == address(0)) return false;
+        IUniswapV3Pool(pool).slot0(); // Check if pool exists and is active
+        // Additional liquidity check: ensure amount is reasonable compared to pool liquidity
+        // For simplicity, assume pool exists means sufficient liquidity for now
+        // In production, query pool liquidity and compare
+        return true;
+    }
+
+    function estimateGasCost(uint256 gasPrice, uint256 gasLimit) internal pure returns (uint256) {
+        return gasPrice * gasLimit;
+    }
+
+    function calculateVolatility(address token, uint256 /* timeWindow */) internal view returns (uint256) {
+        // Simplified volatility calculation using price changes over time
+        // In production, use historical price data
+        address feed = oracleOf[token];
+        if (feed == address(0)) return 0;
+        // Placeholder: return a volatility score (0-100)
+        // Actual implementation would track price changes
+        return 50; // Medium volatility
     }
 
     function _preloadOracles() internal {

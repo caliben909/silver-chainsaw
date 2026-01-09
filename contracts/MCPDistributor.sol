@@ -3,6 +3,8 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title MCPDistributor
@@ -10,6 +12,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * Distributes ETH profits equally across 10 pre-configured wallets
  */
 contract MCPDistributor is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     // 10 wallets for profit distribution
     address[10] public wallets;
 
@@ -61,7 +65,8 @@ contract MCPDistributor is Ownable, ReentrancyGuard {
         // Distribute to each wallet
         for (uint256 i = 0; i < 10; i++) {
             require(wallets[i] != address(0), "Wallet not set");
-            payable(wallets[i]).transfer(amountPerWallet);
+            (bool success,) = payable(wallets[i]).call{value: amountPerWallet}("");
+            require(success, "Transfer failed");
         }
 
         emit ProfitsDistributed(balance, GAS_RESERVE, distributableAmount);
@@ -73,10 +78,11 @@ contract MCPDistributor is Ownable, ReentrancyGuard {
     function rescueToken(address token, uint256 amount) external onlyOwner {
         if (token == address(0)) {
             // ETH rescue
-            payable(owner()).transfer(amount);
+            (bool success,) = payable(owner()).call{value: amount}("");
+            require(success, "ETH transfer failed");
         } else {
             // ERC20 rescue
-            IERC20(token).transfer(owner(), amount);
+            IERC20(token).safeTransfer(owner(), amount);
         }
         emit TokenRescued(token, amount, owner());
     }
@@ -92,9 +98,4 @@ contract MCPDistributor is Ownable, ReentrancyGuard {
      * @dev Receive ETH profits from arbitrage contracts
      */
     receive() external payable {}
-}
-
-// Minimal IERC20 interface for rescue
-interface IERC20 {
-    function transfer(address to, uint256 amount) external returns (bool);
 }

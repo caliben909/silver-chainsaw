@@ -370,14 +370,16 @@ contract GodModeEmpireFinal is
         require(msg.sender == aavePool, "Invalid Aave pool");
         require(initiator == address(this), "Invalid initiator");
 
-        // Decode params: mode (0=skew, 1=triangular), tokens...
-        (uint8 mode, address tokenA, address tokenB, address tokenC, uint256 amount) = abi.decode(params, (uint8, address, address, address, uint256));
+        // Decode params: mode (0=skew, 1=triangular, 2=quad), tokens...
+        (uint8 mode, address tokenA, address tokenB, address tokenC, address tokenD, uint256 amount) = abi.decode(params, (uint8, address, address, address, address, uint256));
 
         uint256 out;
         if (mode == 0) {
             out = _arbCycle(tokenA, tokenB, amount);
         } else if (mode == 1) {
             out = _triangularArb(tokenA, tokenB, tokenC, amount);
+        } else if (mode == 2) {
+            out = _quadArb(tokenA, tokenB, tokenC, tokenD, amount);
         }
 
         require(out >= amount + (amount * minProfitBP) / 10_000, "No profit");
@@ -429,160 +431,24 @@ contract GodModeEmpireFinal is
         );
     }
 
-    receive() external payable {}
-}
-
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
-import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
-import "@uniswap/v3-core/contracts/interfaces/callback/IUniswapV3FlashCallback.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-
-contract GodModeEmpire is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable, IUniswapV3FlashCallback {
-    using SafeERC20 for IERC20;
-
-    address public treasury;
-    uint256 public minProfitBP;
-    mapping(address => address) public oracleOf;
-
-    uint256 constant MIN_PROFIT_BP = 5; // 0.05%
-    uint256 constant MAX_SLIPPAGE_BP = 50; // 0.5%
-    uint256 constant STALE_PRICE_SEC = 3600; // 1 hour
-    address constant ROUTER = 0xE592427A0AEce92De3Edee1F18E0157C05861564; // Uniswap V3 Router on Arbitrum
-
-    /* -----------------------------------------------------------
-                               EVENTS
-    ----------------------------------------------------------- */
-    event Cycle(uint256 profit, uint256 fee, address token);
-    event OracleSet(address token, address feed);
-
-    /* -----------------------------------------------------------
-                               INITIALISER
-    ----------------------------------------------------------- */
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _treasury) external initializer {
-        __ReentrancyGuard_init();
-        __Ownable_init(address(0));
-        __UUPSUpgradeable_init();
-        treasury = _treasury;
-        minProfitBP = MIN_PROFIT_BP;
-    }
-
-    /* -----------------------------------------------------------
-                           FLASH ENTRY
-    ----------------------------------------------------------- */
-    function arb(address pool, address token, uint256 amount) external nonReentrant {
-        IUniswapV3Pool(pool).flash(address(this), amount, 0, abi.encode(token, amount));
-    }
-
-    /* -----------------------------------------------------------
-                         FLASH CALLBACK
-    ----------------------------------------------------------- */
-    function uniswapV3FlashCallback(
-        uint256 fee0,
-        uint256,
-        bytes calldata data
-    ) external override nonReentrant {
-        (address token, uint256 amount) = abi.decode(data, (address, uint256));
-        uint256 repay = amount + fee0;
-        uint256 start = IERC20(token).balanceOf(address(this));
-        // --- your arb logic here ---
-        uint256 out = _doArb(token, amount);
-        require(out >= amount + (amount * minProfitBP) / 10_000, "No profit");
-        // REPAY FIRST (CEI)
-        IERC20(token).safeTransfer(msg.sender, repay);
-        // KEEP SURPLUS
-        uint256 surplus = IERC20(token).balanceOf(address(this)) - (start - amount);
-        if (surplus > 0) {
-            uint256 dev = (surplus * 500) / 10_000; // 5 %
-            IERC20(token).safeTransfer(treasury, dev);
-            IERC20(token).safeTransfer(owner(), surplus - dev);
-        }
-        emit Cycle(out, fee0, token);
-    }
-
-    /* -----------------------------------------------------------
-                        INTERNAL ARB ENGINE
-    ----------------------------------------------------------- */
-    function _doArb(address token, uint256 amt) internal returns (uint256 finalAmt) {
-        // Example: USDC→WETH→USDC 0.05 %
-        address usdc = 0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8;
-        address weth = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
-        uint256 wethAmt = _swap(token == usdc ? usdc : weth,
-                                token == usdc ? weth : usdc,
-                                amt);
-        finalAmt = _swap(token == usdc ? weth : usdc,
-                         token == usdc ? usdc : weth,
-                         wethAmt);
-    }
-
-    function _swap(address a, address b, uint256 amt) internal returns (uint256) {
-        TransferHelper.safeApprove(a, ROUTER, 0);
-        TransferHelper.safeApprove(a, ROUTER, amt);
-        uint256 out = ISwapRouter(ROUTER).exactInputSingle(
-            ISwapRouter.ExactInputSingleParams({
-                tokenIn: a,
-                tokenOut: b,
-                fee: 500,
-                recipient: address(this),
-                deadline: block.number + 1,
-                amountIn: amt,
-                amountOutMinimum: _minOut(a, b, amt),
-                sqrtPriceLimitX96: 0
-            })
+    function executeAaveQuadArb(address tokenA, address tokenB, address tokenC, address tokenD, uint256 amount) external whenNotPaused {
+        require(keeper[msg.sender] || msg.sender == owner(), "K/O only");
+        address[] memory assets = new address[](1);
+        assets[0] = tokenA;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+        uint256[] memory modes = new uint256[](1);
+        modes[0] = 0;
+        IAavePool(aavePool).flashLoan(
+            address(this),
+            assets,
+            amounts,
+            modes,
+            address(this),
+            abi.encode(uint8(2), tokenA, tokenB, tokenC, tokenD, amount),
+            0
         );
-        return out;
     }
 
-    /* -----------------------------------------------------------
-                           ORACLE HELPERS
-    ----------------------------------------------------------- */
-    function _minOut(address a, address b, uint256 amt) internal view returns (uint256) {
-        uint256 priceA = _price(a);
-        uint256 priceB = _price(b);
-        uint8 decA = IERC20Metadata(a).decimals();
-        uint8 decB = IERC20Metadata(b).decimals();
-        uint256 expected = (amt * priceA * (10 ** decB)) / (priceB * (10 ** decA));
-        return (expected * (10_000 - MAX_SLIPPAGE_BP)) / 10_000;
-    }
-
-    function _price(address token) internal view returns (uint256) {
-        address feed = oracleOf[token];
-        require(feed != address(0), "No oracle");
-        (uint80 roundId, int256 ans,, uint256 updatedAt,) = AggregatorV3Interface(feed).latestRoundData();
-        require(block.timestamp - updatedAt < STALE_PRICE_SEC, "Stale");
-        require(roundId > 0 && ans > 0, "Bad round");
-        return uint256(ans);
-    }
-
-    /* -----------------------------------------------------------
-                           ADMIN
-    ----------------------------------------------------------- */
-    function setOracle(address token, address feed) external onlyOwner {
-        oracleOf[token] = feed;
-        emit OracleSet(token, feed);
-    }
-
-    function setMinProfit(uint256 bp) external onlyOwner {
-        require(bp <= 500, "Too high");
-        minProfitBP = bp;
-    }
-
-    function _authorizeUpgrade(address newImpl) internal override onlyOwner {}
-
-    /* -----------------------------------------------------------
-                           RESCUE
-    ----------------------------------------------------------- */
-    function rescue(address token) external onlyOwner {
-        IERC20(token).safeTransfer(owner(), IERC20(token).balanceOf(address(this)));
-    }
+    receive() external payable {}
 }
